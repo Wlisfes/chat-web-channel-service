@@ -10,9 +10,9 @@ import { AppController } from '@/app.controller'
 import { AppService } from '@/app.service'
 import { DatabaseModule } from '@/database/database.module'
 import { HealthModule } from '@/health/health.module'
-import { SMS_RABBITMQ_VHOST } from '@/modules/message/message.constants'
-import { MessageModule } from '@/modules/message/message.module'
-import { setupMessageTopology } from '@/modules/message/message.topology'
+import { SMS_RABBITMQ_VHOST } from '@/modules/dispatch/dispatch.constants'
+import { DispatchModule } from '@/modules/dispatch/dispatch.module'
+import { setupDispatchTopology } from '@/modules/dispatch/dispatch.topology'
 
 /** 选路服务。直接读 SRM 库的路由配置，不调用 SRM 接口。 */
 @Module({
@@ -21,12 +21,12 @@ import { setupMessageTopology } from '@/modules/message/message.topology'
         ConfigModule.forRoot({ isGlobal: true }),
         NacosModule.forRoot(forRootNacosRuntimeOptions(process.env)),
         RedisModule.forRoot({ database: 6 }),
-        RabbitmqModule.forRoot({ vhost: SMS_RABBITMQ_VHOST, setup: setupMessageTopology }),
+        RabbitmqModule.forRoot({ vhost: SMS_RABBITMQ_VHOST, setup: setupDispatchTopology }),
         DatabaseModule,
         GatewayPrincipalModule,
         AuthorizationModule,
         HealthModule,
-        MessageModule
+        DispatchModule
     ],
     controllers: [AppController],
     providers: [

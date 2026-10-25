@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { orderRoutes, routeMatches, selectChannel } = require('../dist/modules/message/message.route')
+const { orderRoutes, routeMatches, selectChannel } = require('../dist/modules/dispatch/dispatch.route')
 
 const facts = { appKeyId: 1001, type: 'SOTP', countryKeyId: 1007, toNumber: '85251234567' }
 
