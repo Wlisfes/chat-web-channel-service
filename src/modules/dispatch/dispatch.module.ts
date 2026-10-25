@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common'
 import { TypeOrmModule } from '@nestjs/typeorm'
-import { MessageService } from '@/modules/message/message.service'
+import { DispatchService } from '@/modules/dispatch/dispatch.service'
 import * as SrmSchema from '@wlisfes/chat-web-base-schema/chat-web-srm-mysql'
 
 /** 短信选路模块：只消费队列，不提供接口。 */
@@ -14,6 +14,6 @@ import * as SrmSchema from '@wlisfes/chat-web-base-schema/chat-web-srm-mysql'
             SrmSchema.TbSrmChannel
         ])
     ],
-    providers: [MessageService]
+    providers: [DispatchService]
 })
-export class MessageModule {}
+export class DispatchModule {}
