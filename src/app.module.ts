@@ -1,0 +1,38 @@
+import { Module } from '@nestjs/common'
+import { ConfigModule } from '@nestjs/config'
+import { APP_GUARD } from '@nestjs/core'
+import { AuthorizationGuard, AuthorizationModule, GatewayPrincipalGuard, GatewayPrincipalModule } from '@wlisfes/chat-web-base-schema/auth'
+import { HttpResponseModule } from '@wlisfes/chat-web-base-schema/interceptor'
+import { forRootNacosRuntimeOptions, NacosModule } from '@wlisfes/chat-web-base-schema/nacos'
+import { RabbitmqModule } from '@wlisfes/chat-web-base-schema/rabbitmq'
+import { RedisModule } from '@wlisfes/chat-web-base-schema/redis'
+import { AppController } from '@/app.controller'
+import { AppService } from '@/app.service'
+import { DatabaseModule } from '@/database/database.module'
+import { HealthModule } from '@/health/health.module'
+import { SMS_RABBITMQ_VHOST } from '@/modules/message/message.constants'
+import { MessageModule } from '@/modules/message/message.module'
+import { setupMessageTopology } from '@/modules/message/message.topology'
+
+/** 选路服务。直接读 SRM 库的路由配置，不调用 SRM 接口。 */
+@Module({
+    imports: [
+        HttpResponseModule,
+        ConfigModule.forRoot({ isGlobal: true }),
+        NacosModule.forRoot(forRootNacosRuntimeOptions(process.env)),
+        RedisModule.forRoot({ database: 6 }),
+        RabbitmqModule.forRoot({ vhost: SMS_RABBITMQ_VHOST, setup: setupMessageTopology }),
+        DatabaseModule,
+        GatewayPrincipalModule,
+        AuthorizationModule,
+        HealthModule,
+        MessageModule
+    ],
+    controllers: [AppController],
+    providers: [
+        AppService,
+        { provide: APP_GUARD, useExisting: GatewayPrincipalGuard },
+        { provide: APP_GUARD, useExisting: AuthorizationGuard }
+    ]
+})
+export class AppModule {}
