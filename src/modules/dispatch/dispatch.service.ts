@@ -45,7 +45,9 @@ export class DispatchService implements OnApplicationBootstrap {
             await this.rabbitmqService.publish(constants.SMS_CHANNEL_EXCHANGE, route.channelAlias, payload, {
                 messageId: message.logId
             })
-            this.logger.log(`已选通道：logId=${message.logId}，route=${route.routeAlias}，channel=${route.channelAlias}，耗时=${elapsed()}`)
+            this.logger.log(
+                `已选通道：logId=${message.logId}，type=${payload.type}，mcc=${payload.mcc}，routeAlias=${route.routeAlias}，channelAlias=${route.channelAlias}，耗时=${elapsed()}`
+            )
             return 'ack'
         } catch (error) {
             this.logger.error(
