@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { orderRoutes, routeMatches, selectChannel } = require('../dist/modules/dispatch/dispatch.route')
+const { ChannelBalancer, orderRoutes, routeMatches, selectChannel } = require('../dist/modules/dispatch/dispatch.route')
 
 const facts = { appKeyId: 1001, type: 'SOTP', countryKeyId: 1007, toNumber: '85251234567' }
 
@@ -42,20 +42,43 @@ test('规则组之间是或，组内条件是且；没有规则组时不接收',
     assert.equal(routeMatches(3, rules, facts), false)
 })
 
-test('只选同方向同类型的通道，先取最小优先级，再按权重', () => {
-    const channel = (channelKeyId, priority, weight, extra = {}) => ({
-        routeKeyId: 1,
-        channelKeyId,
-        channelAlias: 'TSK-' + channelKeyId,
-        channelType: 'SOTP',
-        countryKeyId: 1007,
-        priority,
-        weight,
-        ...extra
-    })
+const channel = (channelKeyId, priority, weight, extra = {}) => ({
+    routeKeyId: 1,
+    channelKeyId,
+    channelAlias: 'TSK-' + channelKeyId,
+    channelType: 'SOTP',
+    countryKeyId: 1007,
+    priority,
+    weight,
+    ...extra
+})
+
+/** 连续选 times 次，返回选中的通道主键序列。 */
+function pickSequence(channels, times, balancer = new ChannelBalancer()) {
+    return Array.from({ length: times }, () => selectChannel(channels, facts, balancer).channelKeyId)
+}
+
+test('只选同方向同类型的通道，先取最小优先级', () => {
     const channels = [channel(1, 1, 1), channel(2, 1, 3), channel(3, 2, 100), channel(4, 1, 100, { countryKeyId: 1008 })]
-    assert.equal(selectChannel(channels, facts, () => 0).channelKeyId, 1)
-    assert.equal(selectChannel(channels, facts, () => 0.9).channelKeyId, 2)
-    assert.equal(selectChannel([channel(3, 2, 100)], facts, () => 0).channelKeyId, 3)
-    assert.equal(selectChannel(channels, { ...facts, type: 'MRKT' }), undefined)
+    assert.ok(pickSequence(channels, 8).every(keyId => keyId === 1 || keyId === 2))
+    assert.equal(selectChannel([channel(3, 2, 100)], facts, new ChannelBalancer()).channelKeyId, 3)
+    assert.equal(selectChannel(channels, { ...facts, type: 'MRKT' }, new ChannelBalancer()), undefined)
+    assert.equal(selectChannel([channel(5, 1, 0)], facts, new ChannelBalancer()), undefined)
+})
+
+test('权重相同时严格轮流提交', () => {
+    const channels = [channel(3, 1, 10), channel(1, 1, 10), channel(2, 1, 10)]
+    assert.deepEqual(pickSequence(channels, 6), [1, 2, 3, 1, 2, 3])
+})
+
+test('权重不同时按比例平滑分配', () => {
+    const sequence = pickSequence([channel(1, 1, 3), channel(2, 1, 1)], 8)
+    assert.deepEqual(sequence, [1, 1, 2, 1, 1, 1, 2, 1])
+    assert.equal(sequence.filter(keyId => keyId === 1).length, 6)
+})
+
+test('通道增减后轮询继续均衡', () => {
+    const balancer = new ChannelBalancer()
+    assert.deepEqual(pickSequence([channel(1, 1, 1), channel(2, 1, 1)], 3, balancer), [1, 2, 1])
+    assert.deepEqual(pickSequence([channel(1, 1, 1), channel(2, 1, 1), channel(3, 1, 1)], 6, balancer).sort(), [1, 1, 2, 2, 3, 3])
 })

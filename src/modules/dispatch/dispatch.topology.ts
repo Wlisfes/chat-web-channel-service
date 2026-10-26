@@ -17,4 +17,8 @@ export async function setupDispatchTopology(channel: ConfirmChannel): Promise<vo
         deadLetterRoutingKey: constants.SMS_SUBMIT_DEAD_ROUTING_KEY
     })
     await channel.bindQueue(constants.SMS_SUBMIT_QUEUE, constants.SMS_EXCHANGE, constants.SMS_SUBMIT_ROUTING_KEY)
+    // 选路配置变更是广播：每个实例声明自己的独占队列，连接断开后队列自动删除，重连时在这里重新声明。
+    await channel.assertExchange(constants.SMS_ROUTE_CONFIG_EXCHANGE, 'fanout', { durable: true })
+    await channel.assertQueue(constants.SMS_ROUTE_CONFIG_QUEUE, { durable: false, exclusive: true, autoDelete: true })
+    await channel.bindQueue(constants.SMS_ROUTE_CONFIG_QUEUE, constants.SMS_ROUTE_CONFIG_EXCHANGE, '')
 }

@@ -1,24 +1,27 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
-import { orderRoutes, routeMatches, selectChannel, type RouteChannelCandidate, type RouteFacts } from '@/modules/dispatch/dispatch.route'
-import { In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { ChannelBalancer, orderRoutes, routeMatches, selectChannel, type RouteFacts } from '@/modules/dispatch/dispatch.route'
+import { RouteCacheService } from '@/modules/dispatch/dispatch.cache'
 import { RabbitmqService } from '@wlisfes/chat-web-base-schema/rabbitmq'
-import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as constants from '@/modules/dispatch/dispatch.constants'
 
 /** 选路结果；没有可用通道时为 undefined。 */
 type RouteResult = Pick<constants.SmsDispatchPayload, 'routeKeyId' | 'routeAlias' | 'channelKeyId' | 'channelAlias'>
 
-/** 消费 SMS 提交的短信，按路由规则选出通道后投递到该通道的队列 chat.sms.channel.<通道别名>。当前不落库。 */
+/** 消费 SMS 提交的短信，按内存中的选路配置选出通道后投递到该通道的队列 chat.sms.channel.<通道别名>。当前不落库。 */
 @Injectable()
 export class DispatchService implements OnApplicationBootstrap {
     private readonly logger = new Logger(DispatchService.name)
+    /** 同优先级通道之间的平滑加权轮询状态；权重相同时均衡轮流提交。 */
+    private readonly balancer = new ChannelBalancer()
 
     constructor(
-        @InjectRepository(Schema.TbSrmRoute) private readonly repository: Repository<Schema.TbSrmRoute>,
+        private readonly routeCacheService: RouteCacheService,
         private readonly rabbitmqService: RabbitmqService
     ) {}
 
     public async onApplicationBootstrap(): Promise<void> {
+        // 选路缓存加载完成后再消费，避免启动瞬间的短信因缓存为空进入死信队列。
+        await this.routeCacheService.ready()
         await this.rabbitmqService.consume<constants.MessageSubmitPayload>(constants.SMS_SUBMIT_QUEUE, async message =>
             this.fetchRouteSubmit(message)
         )
@@ -28,9 +31,9 @@ export class DispatchService implements OnApplicationBootstrap {
     private async fetchRouteSubmit(message: constants.MessageSubmitPayload): Promise<'ack' | 'reject'> {
         const startedAt = performance.now()
         const elapsed = () => `${Math.round(performance.now() - startedAt)}ms`
-        this.logger.log(`短信开始选路：`, message)
+        this.logger.log(`短信开始选路：`, JSON.stringify(message))
         try {
-            const route = await this.findRoute(message)
+            const route = this.findRoute(message)
             if (!route) {
                 this.logger.warn(`没有可用路由或通道，短信进入死信队列：logId=${message.logId}，耗时=${elapsed()}`)
                 return 'reject'
@@ -51,69 +54,19 @@ export class DispatchService implements OnApplicationBootstrap {
         }
     }
 
-    /**
-     * 读取启用的路由、规则组和通道，依次尝试每条路由。
-     * 应用绑定的路由排第一，其余同类型路由按优先级排序。
-     */
-    private async findRoute(message: constants.MessageSubmitPayload): Promise<RouteResult | undefined> {
+    /** 按内存快照选路：应用绑定的路由排第一，其余同类型路由按优先级排序，依次尝试每条路由。 */
+    private findRoute(message: constants.MessageSubmitPayload): RouteResult | undefined {
         const facts: RouteFacts = {
             appKeyId: Number(message.appKeyId),
             type: message.type,
             countryKeyId: Number(message.countryKeyId),
             toNumber: message.toNumber
         }
-        const manager = this.repository.manager
-        const routes = await manager.find(Schema.TbSrmRoute, {
-            // 路由类型与短信类型取值一致，但两边枚举分开定义。
-            where: { type: facts.type as Schema.TbSrmRouteType, status: Schema.TbSrmRouteStatus.ENABLE },
-            select: ['keyId', 'alias', 'priority']
-        })
-        if (routes.length === 0) return undefined
-        const routeKeyIds = routes.map(route => route.keyId)
-        const [binding, rules, links] = await Promise.all([
-            facts.appKeyId > 0
-                ? manager.findOne(Schema.TbSrmRouteApp, {
-                      where: { appKeyId: facts.appKeyId, status: Schema.TbSrmRouteAppStatus.ENABLE },
-                      select: ['routeKeyId']
-                  })
-                : null,
-            manager.find(Schema.TbSrmRouteRule, {
-                where: { routeKeyId: In(routeKeyIds), status: Schema.TbSrmRouteRuleStatus.ENABLE },
-                select: ['routeKeyId', 'conditions']
-            }),
-            manager.find(Schema.TbSrmRouteChannel, {
-                where: { routeKeyId: In(routeKeyIds), status: Schema.TbSrmRouteChannelStatus.ENABLE },
-                select: ['routeKeyId', 'channelKeyId', 'priority', 'weight']
-            })
-        ])
-        const channels = links.length
-            ? await manager.find(Schema.TbSrmChannel, {
-                  where: { keyId: In(links.map(link => link.channelKeyId)), status: Schema.TbSrmChannelStatus.ENABLE },
-                  select: ['keyId', 'alias', 'type', 'countryKeyId']
-              })
-            : []
-        const channelOptions = new Map(channels.map(channel => [channel.keyId, channel]))
-        const candidates: RouteChannelCandidate[] = links.flatMap(link => {
-            const channel = channelOptions.get(link.channelKeyId)
-            if (!channel) return []
-            return [
-                {
-                    routeKeyId: link.routeKeyId,
-                    channelKeyId: channel.keyId,
-                    channelAlias: channel.alias,
-                    channelType: channel.type,
-                    countryKeyId: channel.countryKeyId,
-                    priority: link.priority,
-                    weight: link.weight
-                }
-            ]
-        })
-        for (const route of orderRoutes(routes, binding?.routeKeyId)) {
-            if (!routeMatches(route.keyId, rules, facts)) continue
-            const channel = selectChannel(
-                candidates.filter(item => item.routeKeyId === route.keyId),
-                facts
-            )
+        const snapshot = this.routeCacheService.current()
+        const routes = snapshot.routes.get(facts.type) ?? []
+        for (const route of orderRoutes(routes, snapshot.bindings.get(facts.appKeyId))) {
+            if (!routeMatches(route.keyId, snapshot.rules.get(route.keyId) ?? [], facts)) continue
+            const channel = selectChannel(snapshot.channels.get(route.keyId) ?? [], facts, this.balancer)
             if (channel) {
                 return {
                     routeKeyId: route.keyId,

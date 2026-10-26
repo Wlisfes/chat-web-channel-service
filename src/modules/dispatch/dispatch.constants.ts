@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 /** RabbitMQ 虚拟主机；SMS、Channel、SRM、Dispatch 的 Nacos `rabbitmq.vhost` 必须都是这个值。 */
 export const SMS_RABBITMQ_VHOST = '/chat-sms'
 /** 短信交换机。 */
@@ -17,6 +19,20 @@ export const SMS_CHANNEL_SNAPSHOT_ROUTING_KEY = 'sms.channel.snapshot'
 /** 通道队列名称。通道别名全表唯一且创建后不可修改。 */
 export function smsChannelQueue(alias: string): string {
     return `chat.sms.channel.${alias}`
+}
+/**
+ * 选路配置变更广播：SRM 在路由、规则组、路由通道、应用绑定、通道启停或删除提交后发布，
+ * 每个 Channel 实例用自己的临时队列接收，收到后重新加载选路缓存。SRM 和 Channel 各声明一份，名称改动时要同步。
+ */
+export const SMS_ROUTE_CONFIG_EXCHANGE = 'chat.sms.route.config.exchange'
+/** 本实例接收选路配置变更的临时队列：独占、连接断开自动删除，重连时由拓扑重新声明。 */
+export const SMS_ROUTE_CONFIG_QUEUE = `chat.sms.route.config.${randomUUID()}`
+/** 变更消息丢失或实例断线时，按数据库签名校对选路缓存的间隔。 */
+export const ROUTE_CACHE_RECONCILE_INTERVAL_MS = 30_000
+
+/** 选路配置变更消息：只带版本号，不带数据；收到后整体重新加载。 */
+export interface RouteConfigChangedPayload {
+    version: number
 }
 /** 选路失败的短信进入死信队列，供人工排查。 */
 export const SMS_DEAD_EXCHANGE = 'chat.sms.dead.exchange'
