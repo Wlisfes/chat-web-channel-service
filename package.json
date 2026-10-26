@@ -1,6 +1,6 @@
 {
     "name": "chat-web-channel-service",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "description": "Chat Web Channel 服务：消费短信提交队列并按 SRM 路由配置选路",
     "author": "Wlisfes",
     "private": true,
