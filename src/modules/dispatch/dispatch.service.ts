@@ -31,20 +31,21 @@ export class DispatchService implements OnApplicationBootstrap {
     private async fetchRouteSubmit(message: constants.MessageSubmitPayload): Promise<'ack' | 'reject'> {
         const startedAt = performance.now()
         const elapsed = () => `${Math.round(performance.now() - startedAt)}ms`
-        this.logger.log(`短信开始选路：`, JSON.stringify(message))
         try {
             const route = this.findRoute(message)
             if (!route) {
                 this.logger.warn(`没有可用路由或通道，短信进入死信队列：logId=${message.logId}，耗时=${elapsed()}`)
                 return 'reject'
             }
-            const payload: constants.SmsDispatchPayload = { ...message, ...route, routedAt: new Date().toISOString() }
+            const payload: constants.SmsDispatchPayload = {
+                ...message,
+                ...route,
+                routedAt: new Date().toISOString()
+            }
             await this.rabbitmqService.publish(constants.SMS_CHANNEL_EXCHANGE, route.channelAlias, payload, {
                 messageId: message.logId
             })
-            this.logger.log(
-                `短信已选路：logId=${message.logId}，route=${route.routeAlias}，channel=${route.channelAlias}，耗时=${elapsed()}`
-            )
+            this.logger.log(`已选通道：logId=${message.logId}，route=${route.routeAlias}，channel=${route.channelAlias}，耗时=${elapsed()}`)
             return 'ack'
         } catch (error) {
             this.logger.error(
