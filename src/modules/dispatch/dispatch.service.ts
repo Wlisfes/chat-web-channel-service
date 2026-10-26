@@ -34,7 +34,7 @@ export class DispatchService implements OnApplicationBootstrap {
         try {
             const route = this.findRoute(message)
             if (!route) {
-                this.logger.warn(`没有可用路由或通道，短信进入死信队列：logId=${message.logId}，耗时=${elapsed()}`)
+                this.logger.warn(`没有可用路由或通道，短信进入死信队列：msgId=${message.msgId}，耗时=${elapsed()}`)
                 return 'reject'
             }
             const payload: constants.SmsDispatchPayload = {
@@ -43,13 +43,15 @@ export class DispatchService implements OnApplicationBootstrap {
                 routedAt: new Date().toISOString()
             }
             await this.rabbitmqService.publish(constants.SMS_CHANNEL_EXCHANGE, route.channelAlias, payload, {
-                messageId: message.logId
+                messageId: message.msgId
             })
-            this.logger.log(`已选通道：logId=${message.logId}，route=${route.routeAlias}，channel=${route.channelAlias}，耗时=${elapsed()}`)
+            this.logger.log(
+                `已选通道：msgId=${message.msgId}，type=${payload.type}，mcc=${payload.mcc}，routeAlias=${route.routeAlias}，channelAlias=${route.channelAlias}，耗时=${elapsed()}`
+            )
             return 'ack'
         } catch (error) {
             this.logger.error(
-                `选路失败：logId=${message.logId}，耗时=${elapsed()}，原因=${error instanceof Error ? error.message : String(error)}`
+                `选路失败：msgId=${message.msgId}，耗时=${elapsed()}，原因=${error instanceof Error ? error.message : String(error)}`
             )
             throw error
         }
