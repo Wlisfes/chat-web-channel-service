@@ -1,5 +1,6 @@
 /** 选路时使用的短信事实。 */
 export interface RouteFacts {
+    /** 应用主键：用于查找应用绑定的路由。 */
     appKeyId: number
     type: string
     countryKeyId: number
@@ -62,22 +63,60 @@ function conditionTarget(field: string, facts: RouteFacts): string {
     return facts.toNumber
 }
 
-/** 在一条路由里选通道：只看同方向、同类型的通道，先取最小优先级，再按权重抽取。只传启用的通道。 */
+/**
+ * 平滑加权轮询（与 Nginx upstream 相同的算法）。
+ *
+ * - 每次选择时，组内每个通道的当前值加上自己的权重，选当前值最大的通道，被选中的通道当前值减去组内总权重；
+ * - 权重相同时严格轮流：A、B、C、A、B、C……；权重不同时按比例分配且尽量分散，例如 3:1 得到 A、A、B、A；
+ * - 状态只保存在本实例内存，多个 Channel 实例各自轮询，整体仍接近均衡；
+ * - 通道增删或权重变化时，组内已不存在的通道状态会被丢弃，新通道从 0 开始。
+ */
+export class ChannelBalancer {
+    /** 分组键 -> 通道主键 -> 当前值。 */
+    private readonly groups = new Map<string, Map<number, number>>()
+
+    public pick(key: string, channels: RouteChannelCandidate[]): RouteChannelCandidate {
+        const previous = this.groups.get(key) ?? new Map<number, number>()
+        const state = new Map<number, number>()
+        const total = channels.reduce((sum, item) => sum + item.weight, 0)
+        let selected = channels[0]
+        let best = -Infinity
+        for (const item of channels) {
+            const current = (previous.get(item.channelKeyId) ?? 0) + item.weight
+            state.set(item.channelKeyId, current)
+            if (current > best) {
+                best = current
+                selected = item
+            }
+        }
+        state.set(selected.channelKeyId, best - total)
+        this.groups.set(key, state)
+        return selected
+    }
+
+    /** 清空所有轮询状态。 */
+    public clear(): void {
+        this.groups.clear()
+    }
+}
+
+/**
+ * 在一条路由里选通道：只看同方向、同类型、权重大于 0 的通道，先取最小优先级，
+ * 同优先级内按平滑加权轮询分配；权重相同时就是均衡轮流。只传启用的通道。
+ */
 export function selectChannel(
     channels: RouteChannelCandidate[],
     facts: RouteFacts,
-    random: () => number = Math.random
+    balancer: ChannelBalancer
 ): RouteChannelCandidate | undefined {
     const available = channels.filter(
         item => item.channelType === facts.type && item.countryKeyId === facts.countryKeyId && item.weight > 0
     )
     if (available.length === 0) return undefined
     const top = Math.min(...available.map(item => item.priority))
-    const group = available.filter(item => item.priority === top)
-    let cursor = random() * group.reduce((sum, item) => sum + item.weight, 0)
-    for (const item of group) {
-        cursor -= item.weight
-        if (cursor < 0) return item
-    }
-    return group[group.length - 1]
+    // 按通道主键排序，保证同一组每次的遍历顺序一致，轮询顺序稳定。
+    const group = available.filter(item => item.priority === top).sort((a, b) => a.channelKeyId - b.channelKeyId)
+    if (group.length === 1) return group[0]
+    const key = `${group[0].routeKeyId}:${facts.type}:${facts.countryKeyId}:${top}`
+    return balancer.pick(key, group)
 }

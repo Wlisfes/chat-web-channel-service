@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 /** RabbitMQ 虚拟主机；SMS、Channel、SRM、Dispatch 的 Nacos `rabbitmq.vhost` 必须都是这个值。 */
 export const SMS_RABBITMQ_VHOST = '/chat-sms'
 /** 短信交换机。 */
@@ -18,20 +20,63 @@ export const SMS_CHANNEL_SNAPSHOT_ROUTING_KEY = 'sms.channel.snapshot'
 export function smsChannelQueue(alias: string): string {
     return `chat.sms.channel.${alias}`
 }
+/**
+ * 选路配置变更广播：SRM 在路由、规则组、路由通道、应用绑定、通道启停或删除提交后发布，
+ * 每个 Channel 实例用自己的临时队列接收，收到后重新加载选路缓存。SRM 和 Channel 各声明一份，名称改动时要同步。
+ */
+export const SMS_ROUTE_CONFIG_EXCHANGE = 'chat.sms.route.config.exchange'
+/** 本实例接收选路配置变更的临时队列：独占、连接断开自动删除，重连时由拓扑重新声明。 */
+export const SMS_ROUTE_CONFIG_QUEUE = `chat.sms.route.config.${randomUUID()}`
+/** 变更消息丢失或实例断线时，按数据库签名校对选路缓存的间隔。 */
+export const ROUTE_CACHE_RECONCILE_INTERVAL_MS = 30_000
+
+/** 选路配置变更消息：只带版本号，不带数据；收到后整体重新加载。 */
+export interface RouteConfigChangedPayload {
+    version: number
+}
 /** 选路失败的短信进入死信队列，供人工排查。 */
 export const SMS_DEAD_EXCHANGE = 'chat.sms.dead.exchange'
 export const SMS_SUBMIT_DEAD_QUEUE = 'chat.sms.submit.dead'
 export const SMS_SUBMIT_DEAD_ROUTING_KEY = 'sms.submit.dead'
 
-/** SMS 提交的短信。SMS 和 SRM 各声明一份，字段改动时要同步。 */
-export interface SmsSubmitPayload {
-    messageId: string
+/** SMS 提交的短信。SMS、Channel、Dispatch 各声明一份，字段改动时要同步。 */
+export interface MessageSubmitPayload {
+    /** 本次提交生成的 UUID 标识，当前不落库。 */
+    logId: string
+    /** 提交短信的客户主键 */
+    userKeyId: number
+    /** 提交短信的客户名称 */
+    userName: string
+    /** 提交短信的应用主键：路由的应用绑定按它查询 */
     appKeyId: number
-    type: string
-    countryKeyId: number
+    /** 提交短信的应用ID */
+    appId: string
+    /** 短信类型：MRKT、NTFY、SOTP */
+    type: 'MRKT' | 'NTFY' | 'SOTP'
+    /** 方向：Skyline 国家/地区主键；SMS 可能传字符串，选路前统一转数字 */
+    countryKeyId: number | string
+    /** 号码所在国家的 MCC */
+    mcc: string
+    /** 接收号码：含国际区号，不带 + 号。 */
     toNumber: string
+    /** 短信内容。 */
     content: string
-    submittedAt: string
+    /** 内容字符数 */
+    contentLength: number
+    /** 编码方式 */
+    encoding: 'UCS2' | 'GSM7'
+    /** 计费条数 */
+    segments: number
+    /** 客户售价：USD总额(放大百万倍存储) */
+    price: number
+    /** 提交时间，ISO-8601。 */
+    submitTime: string
+    /** 提交短信任务的ID */
+    taskId?: number
+    /** 提交短信任务的名称 */
+    taskName?: string
+    /** 提交短信的模板ID */
+    templateId?: string
 }
 
 /**
@@ -58,8 +103,8 @@ export interface SmsChannelEventPayload {
     version: number
 }
 
-/** 选路后投递到通道队列的短信。SRM 和 Dispatch 各声明一份，字段改动时要同步。 */
-export interface SmsDispatchPayload extends SmsSubmitPayload {
+/** 选路后投递到通道队列的短信。Channel 和 Dispatch 各声明一份，字段改动时要同步。 */
+export interface SmsDispatchPayload extends MessageSubmitPayload {
     routeKeyId: number
     routeAlias: string
     channelKeyId: number
