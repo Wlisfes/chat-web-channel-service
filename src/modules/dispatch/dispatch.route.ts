@@ -1,5 +1,6 @@
 /** 选路时使用的短信事实。 */
 export interface RouteFacts {
+    /** 应用主键：用于查找应用绑定的路由。 */
     appKeyId: number
     type: string
     countryKeyId: number
