@@ -11,7 +11,9 @@ const entities = [
     SrmSchema.TbSrmRouteApp,
     SrmSchema.TbSrmRouteRule,
     SrmSchema.TbSrmRouteChannel,
-    SrmSchema.TbSrmChannel
+    SrmSchema.TbSrmChannel,
+    SrmSchema.TbSrmChannelPort,
+    SrmSchema.TbSrmSimbankPort
 ]
 
 @Global()
