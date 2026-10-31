@@ -11,14 +11,14 @@ docker inspect "$MYSQL_CONTAINER" >/dev/null
 docker inspect "$RABBIT_CONTAINER" >/dev/null
 
 grant_tables() {
-    sql=$(cat <<'SQL'
-GRANT SELECT ON `chat-web-srm`.`tb_srm_route` TO '$USERNAME'@'%';
-GRANT SELECT ON `chat-web-srm`.`tb_srm_route_app` TO '$USERNAME'@'%';
-GRANT SELECT ON `chat-web-srm`.`tb_srm_route_rule` TO '$USERNAME'@'%';
-GRANT SELECT ON `chat-web-srm`.`tb_srm_route_channel` TO '$USERNAME'@'%';
-GRANT SELECT ON `chat-web-srm`.`tb_srm_channel` TO '$USERNAME'@'%';
-GRANT SELECT ON `chat-web-srm`.`tb_srm_channel_port` TO '$USERNAME'@'%';
-GRANT SELECT ON `chat-web-srm`.`tb_srm_simbank_port` TO '$USERNAME'@'%';
+    sql=$(cat <<SQL
+GRANT SELECT ON \`chat-web-srm\`.\`tb_srm_route\` TO '$USERNAME'@'%';
+GRANT SELECT ON \`chat-web-srm\`.\`tb_srm_route_app\` TO '$USERNAME'@'%';
+GRANT SELECT ON \`chat-web-srm\`.\`tb_srm_route_rule\` TO '$USERNAME'@'%';
+GRANT SELECT ON \`chat-web-srm\`.\`tb_srm_route_channel\` TO '$USERNAME'@'%';
+GRANT SELECT ON \`chat-web-srm\`.\`tb_srm_channel\` TO '$USERNAME'@'%';
+GRANT SELECT ON \`chat-web-srm\`.\`tb_srm_channel_port\` TO '$USERNAME'@'%';
+GRANT SELECT ON \`chat-web-srm\`.\`tb_srm_simbank_port\` TO '$USERNAME'@'%';
 FLUSH PRIVILEGES;
 SQL
 )
