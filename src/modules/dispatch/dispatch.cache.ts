@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common'
-import { InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { EntityManager, In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { RabbitmqService } from '@wlisfes/chat-web-base-schema/rabbitmq'
 import { type RouteCandidate, type RouteChannelCandidate, type RouteRuleCandidate } from '@/modules/dispatch/dispatch.route'
 import * as Schema from '@wlisfes/chat-web-base-schema'
@@ -149,10 +149,11 @@ export class RouteCacheService implements OnApplicationBootstrap, OnApplicationS
             }),
             manager.find(Schema.TbSrmChannel, {
                 where: { status: Schema.TbSrmChannelStatus.ENABLE },
-                select: ['keyId', 'alias', 'type', 'countryKeyId']
+                select: ['keyId', 'alias', 'type']
             })
         ])
         const channelOptions = new Map(channels.map(channel => [channel.keyId, channel]))
+        const countryKeyIds = await this.findChannelCountries(manager)
         const candidates = links.flatMap<RouteChannelCandidate>(link => {
             const channel = channelOptions.get(link.channelKeyId)
             if (!channel) return []
@@ -162,7 +163,7 @@ export class RouteCacheService implements OnApplicationBootstrap, OnApplicationS
                     channelKeyId: channel.keyId,
                     channelAlias: channel.alias,
                     channelType: channel.type,
-                    countryKeyId: channel.countryKeyId,
+                    countryKeyIds: countryKeyIds.get(channel.keyId) ?? [],
                     priority: link.priority,
                     weight: link.weight
                 }
@@ -182,6 +183,29 @@ export class RouteCacheService implements OnApplicationBootstrap, OnApplicationS
     }
 
     /** 配置签名：各表行数和最大修改时间。新增、修改、删除都会改变签名。 */
+    /** 每条启用通道当前可发送的方向：已启用绑定端口的激活方向。 */
+    private async findChannelCountries(manager: EntityManager): Promise<Map<number, number[]>> {
+        const bindings = await manager.find(Schema.TbSrmChannelPort, {
+            where: { status: Schema.TbSrmChannelPortStatus.ENABLE },
+            select: ['channelKeyId', 'portKeyId']
+        })
+        const portKeyIds = [...new Set(bindings.map(item => item.portKeyId))]
+        if (portKeyIds.length === 0) return new Map()
+        const ports = await manager.find(Schema.TbSrmSimbankPort, {
+            where: { keyId: In(portKeyIds), activateStatus: Schema.TbSrmSimbankPortActivateStatus.ACTIVE },
+            select: ['keyId', 'countryKeyId']
+        })
+        const countries = new Map(ports.filter(port => port.countryKeyId).map(port => [port.keyId, port.countryKeyId]))
+        const result = new Map<number, number[]>()
+        for (const binding of bindings) {
+            const countryKeyId = countries.get(binding.portKeyId)
+            if (!countryKeyId) continue
+            const current = result.get(binding.channelKeyId) ?? []
+            if (!current.includes(countryKeyId)) current.push(countryKeyId)
+            result.set(binding.channelKeyId, current)
+        }
+        return result
+    }
     private async loadSignature(): Promise<string> {
         const sql = ROUTE_CONFIG_TABLES.map(
             table => `SELECT '${table}' AS name, COUNT(*) AS total, MAX(\`modify_time\`) AS modified FROM \`${table}\``

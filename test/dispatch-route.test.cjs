@@ -47,7 +47,7 @@ const channel = (channelKeyId, priority, weight, extra = {}) => ({
     channelKeyId,
     channelAlias: 'TSK-' + channelKeyId,
     channelType: 'SOTP',
-    countryKeyId: 1007,
+    countryKeyIds: [1007],
     priority,
     weight,
     ...extra
@@ -58,8 +58,8 @@ function pickSequence(channels, times, balancer = new ChannelBalancer()) {
     return Array.from({ length: times }, () => selectChannel(channels, facts, balancer).channelKeyId)
 }
 
-test('只选同方向同类型的通道，先取最小优先级', () => {
-    const channels = [channel(1, 1, 1), channel(2, 1, 3), channel(3, 2, 100), channel(4, 1, 100, { countryKeyId: 1008 })]
+test('只选有对应方向端口且类型相同的通道，先取最小优先级', () => {
+    const channels = [channel(1, 1, 1), channel(2, 1, 3), channel(3, 2, 100), channel(4, 1, 100, { countryKeyIds: [1008] })]
     assert.ok(pickSequence(channels, 8).every(keyId => keyId === 1 || keyId === 2))
     assert.equal(selectChannel([channel(3, 2, 100)], facts, new ChannelBalancer()).channelKeyId, 3)
     assert.equal(selectChannel(channels, { ...facts, type: 'MRKT' }, new ChannelBalancer()), undefined)
