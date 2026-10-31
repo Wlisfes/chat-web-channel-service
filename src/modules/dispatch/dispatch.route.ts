@@ -23,7 +23,8 @@ export interface RouteChannelCandidate {
     channelKeyId: number
     channelAlias: string
     channelType: string
-    countryKeyId: number
+    /** 通道已绑定且已激活端口的方向。发送时还必须有该方向的端口。 */
+    countryKeyIds: number[]
     priority: number
     weight: number
 }
@@ -110,7 +111,7 @@ export function selectChannel(
     balancer: ChannelBalancer
 ): RouteChannelCandidate | undefined {
     const available = channels.filter(
-        item => item.channelType === facts.type && item.countryKeyId === facts.countryKeyId && item.weight > 0
+        item => item.channelType === facts.type && item.weight > 0 && item.countryKeyIds.includes(facts.countryKeyId)
     )
     if (available.length === 0) return undefined
     const top = Math.min(...available.map(item => item.priority))
